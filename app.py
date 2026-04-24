@@ -2,36 +2,33 @@ import streamlit as st
 from openai import OpenAI
 import base64
 import pandas as pd
+import json
 
-# Kết nối OpenAI API (ChatGPT)
 client = OpenAI(
     api_key=st.secrets["OPENAI_API_KEY"]
 )
 
 st.set_page_config(page_title="Đọc hóa đơn", layout="wide")
-st.title("📄 Công cụ đọc hóa đơn SKU")
-
-st.write("Upload ảnh hóa đơn → ChatGPT sẽ đọc và tổng hợp kết quả")
+st.title("📄 Đọc hóa đơn bằng ChatGPT")
 
 files = st.file_uploader(
-    "Chọn ảnh hóa đơn",
+    "Upload ảnh hóa đơn",
     accept_multiple_files=True,
     type=["jpg", "jpeg", "png"]
 )
 
-if st.button("Xử lý hóa đơn"):
+if st.button("Xử lý"):
     if not files:
-        st.warning("Vui lòng upload ít nhất 1 ảnh.")
+        st.warning("Vui lòng upload ít nhất 1 ảnh")
     else:
         all_data = []
 
-        with st.spinner("ChatGPT đang xử lý hóa đơn..."):
-            for file in files:
-                try:
-                    # Chuyển ảnh sang base64 để gửi cho ChatGPT
-                    img_base64 = base64.b64encode(file.read()).decode()
+        with st.spinner("ChatGPT đang xử lý..."):
 
-                    # Gọi ChatGPT xử lý ảnh hóa đơn
+            for file in files:
+                img_base64 = base64.b64encode(file.read()).decode()
+
+                try:
                     response = client.chat.completions.create(
                         model="gpt-4.1",
                         messages=[
@@ -43,23 +40,28 @@ if st.button("Xử lý hóa đơn"):
                                         "text": """
 Đọc ảnh hóa đơn này.
 
-Yêu cầu:
-- SKU = cột Mã SP (mã vạch sản phẩm)
+Mỗi dòng sản phẩm có:
+- SKU = cột Mã SP
 - TenSanPham = cột Sản phẩm
 - SoLuong = cột SL
 
-Hãy:
-1. Trích tất cả sản phẩm trong ảnh
+Yêu cầu:
+1. Trích toàn bộ sản phẩm
 2. Chuẩn hóa SKU giống nhau
-3. Cộng tổng số lượng theo từng SKU
+3. Chỉ trả về JSON thuần
+4. Không giải thích
+5. Không markdown
+6. Không code block
 
-Chỉ trả về đúng định dạng sau:
-SKU | TenSanPham | SoLuong
+Ví dụ đúng:
 
-Không giải thích
-Không thêm tiêu đề
-Không thêm dòng thừa
-Chỉ trả dữ liệu
+[
+  {
+    "sku": "8931234567890",
+    "ten_san_pham": "Kim chi cải thảo",
+    "so_luong": 5
+  }
+]
 """
                                     },
                                     {
@@ -73,36 +75,34 @@ Chỉ trả dữ liệu
                         ]
                     )
 
-                    result_text = response.choices[0].message.content
+                    result_text = response.choices[0].message.content.strip()
 
-                    # Tách dữ liệu từng dòng
-                    for line in result_text.split("\n"):
-                        if "|" in line:
-                            parts = line.split("|")
+                    # parse JSON
+                    data = json.loads(result_text)
 
-                            if len(parts) == 3:
-                                try:
-                                    sku = parts[0].strip()
-                                    ten_san_pham = parts[1].strip()
-                                    so_luong = float(parts[2].strip())
+                    for item in data:
+                        sku = str(item.get("sku", "")).strip()
+                        ten = str(item.get("ten_san_pham", "")).strip()
+                        qty = float(item.get("so_luong", 0))
 
-                                    if sku:
-                                        all_data.append([
-                                            sku,
-                                            ten_san_pham,
-                                            so_luong
-                                        ])
-                                except:
-                                    pass
+                        if sku:
+                            all_data.append([
+                                sku,
+                                ten,
+                                qty
+                            ])
 
                 except Exception as e:
-                    st.error(f"Lỗi xử lý file {file.name}: {str(e)}")
+                    st.error(f"Lỗi file {file.name}: {str(e)}")
 
-        # Tổng hợp kết quả
         if all_data:
             df = pd.DataFrame(
                 all_data,
-                columns=["SKU", "TenSanPham", "SoLuong"]
+                columns=[
+                    "SKU",
+                    "TenSanPham",
+                    "SoLuong"
+                ]
             )
 
             final_result = (
@@ -116,23 +116,10 @@ Chỉ trả dữ liệu
 
             st.success("Xử lý hoàn tất")
 
-            st.subheader("Kết quả tổng hợp")
             st.dataframe(
                 final_result,
                 use_container_width=True
             )
 
-            # Nút tải Excel
-            excel_file = "ket_qua_hoa_don.xlsx"
-            final_result.to_excel(excel_file, index=False)
-
-            with open(excel_file, "rb") as f:
-                st.download_button(
-                    label="📥 Tải file Excel",
-                    data=f,
-                    file_name="ket_qua_hoa_don.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
         else:
-            st.error("Không đọc được dữ liệu từ ảnh hóa đơn.")
+            st.error("Không đọc được dữ liệu từ ảnh")
