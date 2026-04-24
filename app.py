@@ -21,7 +21,22 @@ if st.button("Xử lý"):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Trích SKU và số lượng, trả dạng: SKU | số lượng"},
+                        {
+                            "type": "text",
+                            "text": """
+Đọc hóa đơn này và trích đúng 3 cột sau:
+
+SKU = cột Mã SP (mã vạch sản phẩm)
+TenSanPham = cột Sản phẩm
+SoLuong = cột SL
+
+Chỉ trả về đúng định dạng:
+SKU | TenSanPham | SoLuong
+
+Không giải thích.
+Không thêm dòng thừa.
+"""
+                        },
                         {
                             "type": "image_url",
                             "image_url": {
@@ -38,12 +53,34 @@ if st.button("Xử lý"):
         for line in text.split("\n"):
             if "|" in line:
                 try:
-                    sku, qty = line.split("|")
-                    all_data.append([sku.strip(), float(qty.strip())])
+                    parts = line.split("|")
+
+                    if len(parts) == 3:
+                        sku = parts[0].strip()
+                        ten_san_pham = parts[1].strip()
+                        so_luong = float(parts[2].strip())
+
+                        all_data.append([
+                            sku,
+                            ten_san_pham,
+                            so_luong
+                        ])
                 except:
                     pass
 
-    df = pd.DataFrame(all_data, columns=["SKU", "SoLuong"])
-    result = df.groupby("SKU").sum().reset_index()
+    if all_data:
+        df = pd.DataFrame(
+            all_data,
+            columns=["SKU", "TenSanPham", "SoLuong"]
+        )
 
-    st.write(result)
+        # Gom nhóm theo SKU + Tên sản phẩm
+        result = (
+            df.groupby(["SKU", "TenSanPham"], as_index=False)
+            ["SoLuong"]
+            .sum()
+        )
+
+        st.write(result)
+    else:
+        st.warning("Không đọc được dữ liệu từ ảnh.")
